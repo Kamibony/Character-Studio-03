@@ -1,0 +1,5 @@
+{
+  "name": "Character Studio",
+  "description": "A robust application to create, manage, and visualize AI-generated characters using your own reference images. Powered by Gemini and Firebase.",
+  "requestFramePermissions": []
+}

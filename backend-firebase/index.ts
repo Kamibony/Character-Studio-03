@@ -1,6 +1,5 @@
-// Fix: Add a triple-slash directive to include Node.js type definitions, resolving the "Cannot find name 'Buffer'" error.
-/// <reference types="node" />
-
+// Fix: Import Buffer to resolve type errors instead of using a triple-slash directive.
+import { Buffer } from "buffer";
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import { getStorage } from "firebase-admin/storage";
@@ -97,8 +96,9 @@ export const createCharacterProfile = regionalFunctions.runWith({timeoutSeconds:
       const textPart = { text: `Analyzuj postavu na tomto obrázku. Vygeneruj JSON objekt s: 'characterName' (kreatívne meno postavy), 'description' (krátky, pútavý popis) a 'keywords' (pole 5 relevantných kľúčových slov). Odpovedaj IBA ako validný JSON.` };
       const imagePart = { inlineData: { mimeType: getMimeType(fileName), data: imageBase64 } };
       
+      // FIX: Use correct model name for Vertex AI SDK and valid parameters
       const generativeModel = vertexAI.getGenerativeModel({
-          model: "gemini-2.5-flash",
+          model: "gemini-1.5-flash-001", 
           generationConfig: { responseMimeType: "application/json" }
       });
       
@@ -172,15 +172,16 @@ export const generateCharacterVisualization = regionalFunctions.runWith({timeout
       const [imageBuffer] = await file.download();
       const imageBase64FromStorage = imageBuffer.toString("base64");
       
-      const generativeModel = vertexAI.getGenerativeModel({ model: "gemini-2.5-flash-image" });
-      const generationPrompt = `Použi poskytnutý obrázok ako referenciu pre vzhľad postavy (${character.description}). Umiestni túto postavu do scény: "${prompt}".`;
+      // FIX: Use correct model name for Vertex AI SDK
+      const generativeModel = vertexAI.getGenerativeModel({ model: "gemini-1.5-flash-001" });
+      const generationPrompt = `Použi poskytnutý obrázok ako referenciu pre vzhľad postavy (${character.description}). Umiestni túto postavu do scény: "${prompt}". Vygeneruj iba obrázok.`;
       const imagePart = { inlineData: { mimeType: getMimeType(character.imagePreviewUrl), data: imageBase64FromStorage } };
       const textPart = { text: generationPrompt };
 
       // Volanie AI
+      // FIX: Remove invalid 'config' parameter. This parameter is not part of the Vertex AI SDK for this call.
       const result = await generativeModel.generateContent({
           contents: [{ role: 'user', parts: [textPart, imagePart] }],
-          config: { responseModalities: [Modality.IMAGE] }
       });
       
       // Robustné spracovanie
@@ -191,7 +192,7 @@ export const generateCharacterVisualization = regionalFunctions.runWith({timeout
       }
 
       const imageBase64 = candidate.content?.parts?.find(part => part.inlineData)?.inlineData?.data;
-      if (!imageBase64) throw new functions.https.HttpsError("internal", "AI nevygenerovalo obrázok.");
+      if (!imageBase64) throw new functions.https.HttpsError("internal", "AI nevygenerovalo obrázok. Skúste zmeniť prompt.");
       
       return { base64Image: imageBase64 };
 

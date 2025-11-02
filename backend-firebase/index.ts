@@ -1,9 +1,10 @@
+// Fix: Add a triple-slash directive to include Node.js type definitions, resolving the "Cannot find name 'Buffer'" error.
+/// <reference types="node" />
+
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import { getStorage } from "firebase-admin/storage";
 import { VertexAI, Modality } from "@google-cloud/vertexai";
-// Fix: Import Buffer to provide type definitions for Node.js Buffer global.
-import { Buffer } from "buffer";
 
 // --- Typy ---
 type CharacterStatus = "ready" | "error"; // Zjednodušené: už nepotrebujeme 'pending' ani 'training'

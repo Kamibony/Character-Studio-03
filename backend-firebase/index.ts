@@ -1,12 +1,12 @@
-// Fix: Import Buffer to resolve type errors instead of using a triple-slash directive.
-import { Buffer } from "buffer";
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import { getStorage } from "firebase-admin/storage";
-import { VertexAI, Modality } from "@google-cloud/vertexai";
+import { VertexAI } from "@google-cloud/vertexai";
+// Fix: Explicitly import Buffer to resolve TypeScript errors about missing Node.js types.
+import { Buffer } from "buffer";
 
 // --- Typy ---
-type CharacterStatus = "ready" | "error"; // Zjednodušené: už nepotrebujeme 'pending' ani 'training'
+type CharacterStatus = "ready" | "error";
 interface UserCharacter {
   id: string;
   userId: string;
@@ -24,7 +24,7 @@ admin.initializeApp();
 const db = admin.firestore();
 const PROJECT_ID = "character-studio-comics";
 const LOCATION = "us-central1";
-const STORAGE_BUCKET = "character-studio-comics.appspot.com"; // Použijeme .appspot.com
+const STORAGE_BUCKET = "character-studio-comics.appspot.com";
 const regionalFunctions = functions.region(LOCATION);
 
 // Helper na MIME typ
@@ -42,18 +42,14 @@ export const getCharacterLibrary = regionalFunctions.https.onCall(
         throw new functions.https.HttpsError("unauthenticated", "Musíte byť prihlásený.");
       }
       const uid = context.auth.uid;
-
-      // ZJEDNODUŠENÝ DOTAZ: Iba filter. ŽIADNE .orderBy().
       const snapshot = await db
         .collection("user_characters")
         .where("userId", "==", uid)
         .get();
-
       return snapshot.docs.map((doc) => ({
         id: doc.id,
         ...doc.data(),
       } as UserCharacter));
-
     } catch (error: any) {
       console.error("Error in getCharacterLibrary:", error);
       if (error instanceof functions.https.HttpsError) throw error;
@@ -62,7 +58,7 @@ export const getCharacterLibrary = regionalFunctions.https.onCall(
   }
 );
 
-// --- Funkcia 2: Vytvorenie Profilu Postavy (Nová robustná funkcia) ---
+// --- Funkcia 2: Vytvorenie Profilu Postavy ---
 export const createCharacterProfile = regionalFunctions.runWith({timeoutSeconds: 120, memory: '1GB'}).https.onCall(
   async (data, context): Promise<UserCharacter> => {
     try {
@@ -70,33 +66,27 @@ export const createCharacterProfile = regionalFunctions.runWith({timeoutSeconds:
         throw new functions.https.HttpsError("unauthenticated", "Musíte byť prihlásený.");
       }
       const uid = context.auth.uid;
-      const { imageBase64, fileName } = data; // Očakávame base64 dáta a názov súboru
+      const { imageBase64, fileName } = data;
 
       if (!imageBase64 || !fileName) {
         throw new functions.https.HttpsError("invalid-argument", "Chýbajú dáta obrázku (imageBase64 alebo fileName).");
       }
 
-      // LAZY INITIALIZATION
       const vertexAI = new VertexAI({ project: PROJECT_ID, location: LOCATION });
       const storage = getStorage();
       const bucket = storage.bucket(STORAGE_BUCKET);
       
-      // 1. Dekódovanie Base64 a nahratie na GCS z backendu
       const imageBuffer = Buffer.from(imageBase64, 'base64');
       const gcsPath = `user_uploads/${uid}/${Date.now()}_${fileName}`;
       const file = bucket.file(gcsPath);
       
       await file.save(imageBuffer, {
-          metadata: {
-              contentType: getMimeType(fileName),
-          },
+          metadata: { contentType: getMimeType(fileName) },
       });
       
-      // 2. Analýza obrázku cez AI
       const textPart = { text: `Analyzuj postavu na tomto obrázku. Vygeneruj JSON objekt s: 'characterName' (kreatívne meno postavy), 'description' (krátky, pútavý popis) a 'keywords' (pole 5 relevantných kľúčových slov). Odpovedaj IBA ako validný JSON.` };
       const imagePart = { inlineData: { mimeType: getMimeType(fileName), data: imageBase64 } };
       
-      // FIX: Use correct model name for Vertex AI SDK and valid parameters
       const generativeModel = vertexAI.getGenerativeModel({
           model: "gemini-1.5-flash-001", 
           generationConfig: { responseMimeType: "application/json" }
@@ -114,24 +104,22 @@ export const createCharacterProfile = regionalFunctions.runWith({timeoutSeconds:
         throw new functions.https.HttpsError("internal", "AI analýza nevrátila žiadne dáta.");
       }
       
-      // 3. Uloženie hotovej postavy do DB
       const newCharRef = db.collection("user_characters").doc();
       const newCharacter: UserCharacter = {
         id: newCharRef.id,
         userId: uid,
-        status: "ready", // Ukladáme rovno ako hotové
+        status: "ready",
         createdAt: admin.firestore.FieldValue.serverTimestamp() as admin.firestore.Timestamp,
         adapterId: `simulated-adapter-${Date.now()}`,
-        imagePreviewUrl: gcsPath, // Uložíme GCS cestu
+        imagePreviewUrl: gcsPath,
         ...aiData
       };
       
       await newCharRef.set(newCharacter);
-      
-      // 4. Vrátenie kompletnej postavy klientovi
       return newCharacter;
 
-    } catch (error: any) {
+    } catch (error: any)
+    {
       console.error("Error in createCharacterProfile:", error);
       if (error instanceof functions.https.HttpsError) throw error;
       throw new functions.https.HttpsError("internal", "Nepodarilo sa vytvoriť profil postavy.", error.message);
@@ -158,41 +146,34 @@ export const generateCharacterVisualization = regionalFunctions.runWith({timeout
       }
       const character = charDoc.data() as UserCharacter;
 
-      if (!character.imagePreviewUrl) {
-          throw new functions.https.HttpsError("failed-precondition", "Postava nemá referenčný obrázok.");
-      }
-
-      // LAZY INITIALIZATION
       const vertexAI = new VertexAI({ project: PROJECT_ID, location: LOCATION });
-      const storage = getStorage();
 
-      // Načítanie referenčného obrázku z GCS
-      const bucket = storage.bucket(STORAGE_BUCKET);
-      const file = bucket.file(character.imagePreviewUrl);
-      const [imageBuffer] = await file.download();
-      const imageBase64FromStorage = imageBuffer.toString("base64");
+      // DEFINITIVE FIX: Use the correct model for image generation in Vertex AI.
+      const generativeModel = vertexAI.getGenerativeModel({ model: "imagegeneration@006" });
       
-      // FIX: Use correct model name for Vertex AI SDK
-      const generativeModel = vertexAI.getGenerativeModel({ model: "gemini-1.5-flash-001" });
-      const generationPrompt = `Použi poskytnutý obrázok ako referenciu pre vzhľad postavy (${character.description}). Umiestni túto postavu do scény: "${prompt}". Vygeneruj iba obrázok.`;
-      const imagePart = { inlineData: { mimeType: getMimeType(character.imagePreviewUrl), data: imageBase64FromStorage } };
+      // Combine character description and user prompt into a single, rich text prompt.
+      const generationPrompt = `Vytvor obrázok postavy. Vzhľad postavy: "${character.description}". Umiestni túto postavu do scény: "${prompt}".`;
+      
       const textPart = { text: generationPrompt };
 
-      // Volanie AI
-      // FIX: Remove invalid 'config' parameter. This parameter is not part of the Vertex AI SDK for this call.
+      // Call the image generation model
       const result = await generativeModel.generateContent({
-          contents: [{ role: 'user', parts: [textPart, imagePart] }],
+          contents: [{ role: 'user', parts: [textPart] }],
       });
       
-      // Robustné spracovanie
       const candidate = result.response.candidates?.[0];
       if (!candidate) throw new functions.https.HttpsError("internal", "AI model nevrátil žiadnych kandidátov.");
       if (candidate.finishReason && ['SAFETY', 'RECITATION'].includes(candidate.finishReason)) {
           throw new functions.https.HttpsError("invalid-argument", `Prompt bol zablokovaný z bezpečnostných dôvodov (${candidate.finishReason}).`);
       }
+      
+      // The image is expected in the first part of the content
+      const imagePart = candidate.content?.parts?.find(part => part.inlineData);
+      const imageBase64 = imagePart?.inlineData?.data;
 
-      const imageBase64 = candidate.content?.parts?.find(part => part.inlineData)?.inlineData?.data;
-      if (!imageBase64) throw new functions.https.HttpsError("internal", "AI nevygenerovalo obrázok. Skúste zmeniť prompt.");
+      if (!imageBase64) {
+          throw new functions.https.HttpsError("internal", "AI nevygenerovalo obrázok. Skúste zmeniť prompt alebo to skúste znova.");
+      }
       
       return { base64Image: imageBase64 };
 

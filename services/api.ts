@@ -1,48 +1,45 @@
+import { functions, httpsCallable, auth } from './firebase';
+import type { UserCharacter } from '../types';
 
-import { auth } from './firebase';
-import { UserCharacter } from '../types';
-
-// IMPORTANT: Replace this with your actual deployed Cloud Function URL
-const BASE_URL = "https://us-central1-character-studio-comics.cloudfunctions.net";
-const API_ENDPOINTS = {
-  getCharacterLibrary: `${BASE_URL}/getCharacterLibrary`,
-  createCharacterProfile: `${BASE_URL}/createCharacterProfile`,
-  generateCharacterVisualization: `${BASE_URL}/generateCharacterVisualization`
-};
-
+// Typy pre argumenty a návratové hodnoty
 interface CreateProfileArgs { firstFilePath: string; }
 interface GenerateVisArgs { characterId: string; prompt: string; }
 interface GenerateVisResult { base64Image: string; }
 
-async function robustFetch<T>(url: string, options: RequestInit = {}): Promise<T> {
-    const response = await fetch(url, options);
-
-    if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: `HTTP chyba! Status: ${response.status}` }));
-        const message = errorData.error || `Neznáma chyba servera. Status: ${response.status}`;
-        throw new Error(message);
+// --- Robustný wrapper, ktorý pridá autentifikáciu ---
+async function callFirebaseFunction<T_Req, T_Res>(functionName: string, data: T_Req): Promise<T_Res> {
+    if (!auth.currentUser) {
+        throw new Error("Používateľ nie je prihlásený.");
     }
-    return response.json();
+
+    // Vytvoríme callable funkciu
+    const callableFunction = httpsCallable<T_Req, T_Res>(functions, functionName);
+
+    // Funkcia httpsCallable automaticky spracuje token,
+    // ak je používateľ prihlásený (auth.currentUser).
+
+    try {
+        const result = await callableFunction(data);
+        return result.data;
+    } catch (error: any) {
+        console.error(`Chyba pri volaní funkcie ${functionName}:`, error);
+        // Preposlanie zrozumiteľnej chybovej hlášky z backendu
+        throw new Error(error.message || "Neznáma chyba servera.");
+    }
 }
 
+// Objekt API, ktorý bude používať naša aplikácia
 export const api = {
   getCharacterLibrary: async (): Promise<UserCharacter[]> => {
-    return robustFetch<UserCharacter[]>(API_ENDPOINTS.getCharacterLibrary, { method: 'POST' });
+    // Pre funkcie bez argumentov posielame prázdny objekt alebo null
+    return callFirebaseFunction('getCharacterLibrary', {});
   },
-  
+
   createCharacterProfile: async (firstFilePath: string): Promise<UserCharacter> => {
-     return robustFetch<UserCharacter>(API_ENDPOINTS.createCharacterProfile, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ firstFilePath })
-    });
+     return callFirebaseFunction<CreateProfileArgs, UserCharacter>('createCharacterProfile', { firstFilePath });
   },
 
   generateCharacterVisualization: async (characterId: string, prompt: string): Promise<GenerateVisResult> => {
-    return robustFetch<GenerateVisResult>(API_ENDPOINTS.generateCharacterVisualization, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ characterId, prompt })
-    });
+    return callFirebaseFunction<GenerateVisArgs, GenerateVisResult>('generateCharacterVisualization', { characterId, prompt });
   },
 };

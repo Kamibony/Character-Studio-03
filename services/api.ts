@@ -2,7 +2,7 @@ import { functions, httpsCallable, auth } from './firebase';
 import type { UserCharacter } from '../types';
 
 // Typy pre argumenty a návratové hodnoty
-interface CreateProfileArgs { firstFilePath: string; }
+interface CreateProfileArgs { imageBase64: string; fileName: string; }
 interface GenerateVisArgs { characterId: string; prompt: string; }
 interface GenerateVisResult { base64Image: string; }
 
@@ -31,12 +31,12 @@ async function callFirebaseFunction<T_Req, T_Res>(functionName: string, data: T_
 // Objekt API, ktorý bude používať naša aplikácia
 export const api = {
   getCharacterLibrary: async (): Promise<UserCharacter[]> => {
-    // Pre funkcie bez argumentov posielame prázdny objekt alebo null
-    return callFirebaseFunction('getCharacterLibrary', {});
+    // Pre funkcie bez argumentov posielame null
+    return callFirebaseFunction('getCharacterLibrary', null);
   },
 
-  createCharacterProfile: async (firstFilePath: string): Promise<UserCharacter> => {
-     return callFirebaseFunction<CreateProfileArgs, UserCharacter>('createCharacterProfile', { firstFilePath });
+  createCharacterProfile: async (imageBase64: string, fileName: string): Promise<UserCharacter> => {
+     return callFirebaseFunction<CreateProfileArgs, UserCharacter>('createCharacterProfile', { imageBase64, fileName });
   },
 
   generateCharacterVisualization: async (characterId: string, prompt: string): Promise<GenerateVisResult> => {

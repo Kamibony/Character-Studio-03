@@ -2,6 +2,8 @@ import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import { getStorage } from "firebase-admin/storage";
 import { VertexAI, Modality } from "@google-cloud/vertexai";
+// Fix: Import Buffer to provide type definitions for Node.js Buffer global.
+import { Buffer } from "buffer";
 
 // --- Typy ---
 type CharacterStatus = "ready" | "error"; // Zjednodušené: už nepotrebujeme 'pending' ani 'training'
@@ -68,27 +70,32 @@ export const createCharacterProfile = regionalFunctions.runWith({timeoutSeconds:
         throw new functions.https.HttpsError("unauthenticated", "Musíte byť prihlásený.");
       }
       const uid = context.auth.uid;
-      const { firstFilePath } = data; // Očakávame GCS cestu k prvému súboru
+      const { imageBase64, fileName } = data; // Očakávame base64 dáta a názov súboru
 
-      if (!firstFilePath) {
-        throw new functions.https.HttpsError("invalid-argument", "Nebol poskytnutý obrázok.");
+      if (!imageBase64 || !fileName) {
+        throw new functions.https.HttpsError("invalid-argument", "Chýbajú dáta obrázku (imageBase64 alebo fileName).");
       }
 
       // LAZY INITIALIZATION
       const vertexAI = new VertexAI({ project: PROJECT_ID, location: LOCATION });
       const storage = getStorage();
-      
-      // 1. Načítanie obrázku z GCS
       const bucket = storage.bucket(STORAGE_BUCKET);
-      const file = bucket.file(firstFilePath);
-      const [imageBuffer] = await file.download();
-      const imageBase64 = imageBuffer.toString("base64");
+      
+      // 1. Dekódovanie Base64 a nahratie na GCS z backendu
+      const imageBuffer = Buffer.from(imageBase64, 'base64');
+      const gcsPath = `user_uploads/${uid}/${Date.now()}_${fileName}`;
+      const file = bucket.file(gcsPath);
+      
+      await file.save(imageBuffer, {
+          metadata: {
+              contentType: getMimeType(fileName),
+          },
+      });
       
       // 2. Analýza obrázku cez AI
       const textPart = { text: `Analyzuj postavu na tomto obrázku. Vygeneruj JSON objekt s: 'characterName' (kreatívne meno postavy), 'description' (krátky, pútavý popis) a 'keywords' (pole 5 relevantných kľúčových slov). Odpovedaj IBA ako validný JSON.` };
-      const imagePart = { inlineData: { mimeType: getMimeType(firstFilePath), data: imageBase64 } };
+      const imagePart = { inlineData: { mimeType: getMimeType(fileName), data: imageBase64 } };
       
-      // Fix: Updated deprecated model 'gemini-1.5-flash' to 'gemini-2.5-flash'.
       const generativeModel = vertexAI.getGenerativeModel({
           model: "gemini-2.5-flash",
           generationConfig: { responseMimeType: "application/json" }
@@ -114,7 +121,7 @@ export const createCharacterProfile = regionalFunctions.runWith({timeoutSeconds:
         status: "ready", // Ukladáme rovno ako hotové
         createdAt: admin.firestore.FieldValue.serverTimestamp() as admin.firestore.Timestamp,
         adapterId: `simulated-adapter-${Date.now()}`,
-        imagePreviewUrl: firstFilePath, // Uložíme GCS cestu
+        imagePreviewUrl: gcsPath, // Uložíme GCS cestu
         ...aiData
       };
       
@@ -170,10 +177,9 @@ export const generateCharacterVisualization = regionalFunctions.runWith({timeout
       const textPart = { text: generationPrompt };
 
       // Volanie AI
-      // Fix: Renamed 'config' to 'generationConfig' to match the Vertex AI SDK's GenerateContentRequest interface.
       const result = await generativeModel.generateContent({
           contents: [{ role: 'user', parts: [textPart, imagePart] }],
-          generationConfig: { responseModalities: [Modality.IMAGE] }
+          config: { responseModalities: [Modality.IMAGE] }
       });
       
       // Robustné spracovanie

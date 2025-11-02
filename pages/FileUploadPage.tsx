@@ -1,17 +1,16 @@
-
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ref, uploadBytes } from 'firebase/storage';
 import { useAuth } from '../hooks/useAuth';
 import { storage } from '../services/firebase';
 import { api } from '../services/api';
-import Loader from '../components/Loader';
 
 const FileUploadPage: React.FC = () => {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isCorsError, setIsCorsError] = useState(false);
   const { user } = useAuth();
   const navigate = useNavigate();
 
@@ -35,6 +34,7 @@ const FileUploadPage: React.FC = () => {
 
     setLoading(true);
     setError(null);
+    setIsCorsError(false);
 
     try {
       // 1. Upload file to Storage
@@ -50,12 +50,32 @@ const FileUploadPage: React.FC = () => {
       navigate(`/character/${newCharacter.id}`);
 
     } catch (err: any) {
-      setError(err.message || "Nepodarilo sa vytvoriť profil postavy.");
+      if (err instanceof TypeError && (err.message.includes('Failed to fetch') || err.message.includes('NetworkError'))) {
+          setIsCorsError(true);
+          setError("Chyba Cross-Origin (CORS): Váš prehliadač zablokoval požiadavku z bezpečnostných dôvodov. Je potrebné nakonfigurovať váš Firebase Storage bucket. Postupujte podľa pokynov nižšie.");
+      } else {
+          setIsCorsError(false);
+          setError(err.message || "Nepodarilo sa vytvoriť profil postavy.");
+      }
       console.error(err);
     } finally {
       setLoading(false);
     }
   };
+  
+  const corsJsonContent = `[
+  {
+    "origin": ["${window.location.origin}"],
+    "method": ["GET", "POST", "PUT", "HEAD"],
+    "responseHeader": [
+      "Content-Type",
+      "Authorization",
+      "X-Goog-Resumable",
+      "X-Goog-Upload-Protocol"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]`;
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -83,8 +103,28 @@ const FileUploadPage: React.FC = () => {
         />
 
         {error && (
-            <div className="mt-4 p-3 text-sm text-red-300 bg-red-900/50 rounded-lg">
-                {error}
+            <div className="mt-4 p-4 text-sm text-red-300 bg-red-900/50 rounded-lg">
+                <p className="font-bold">Chyba pri nahrávaní</p>
+                <p>{error}</p>
+                 {isCorsError && (
+                    <div className="mt-3 pt-3 border-t border-red-800">
+                        <p className="font-bold text-base text-white mb-2">Ako opraviť CORS chybu:</p>
+                        <p className="text-xs text-gray-300 mb-1">1. Vytvorte súbor s názvom <code className="bg-gray-900 px-1 rounded">cors.json</code> s týmto obsahom:</p>
+                        <pre className="text-xs bg-gray-900 p-2 rounded overflow-x-auto text-white my-2">
+                            <code>
+                                {corsJsonContent}
+                            </code>
+                        </pre>
+                        <p className="text-xs text-gray-300 mt-2 mb-1">2. Nainštalujte si Google Cloud CLI (<a href="https://cloud.google.com/sdk/docs/install" target="_blank" rel="noopener noreferrer" className="text-cyan-400 underline">gcloud</a>).</p>
+                        <p className="text-xs text-gray-300 mt-2 mb-1">3. Spustite tento príkaz v termináli (v rovnakom priečinku ako <code className="bg-gray-900 px-1 rounded">cors.json</code>):</p>
+                        <div className="p-2 bg-gray-900 rounded mt-1">
+                            <code className="text-white font-mono select-all flex-grow text-xs break-all">
+                                {`gcloud storage buckets update gs://${storage.app.options.storageBucket} --cors-file=cors.json`}
+                            </code>
+                        </div>
+                        <p className="text-xs text-gray-400 mt-2">Tento príkaz povolí doméne vašej aplikácie pristupovať k Firebase Storage.</p>
+                    </div>
+                )}
             </div>
         )}
 

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../services/api';
@@ -24,7 +23,7 @@ const CharacterSelectionPage: React.FC = () => {
       });
       setCharacters(fetchedCharacters);
     } catch (err: any) {
-      setError(err.message || 'Nepodarilo sa načítať knižnicu postáv.');
+      setError(`${err.message || 'Nepodarilo sa načítať knižnicu postáv.'} (Uistite sa, že Cloud Funkcia 'getCharacterLibrary' je správne nasadená a adresa URL v 'services/api.ts' je správna.)`);
     } finally {
       setLoading(false);
     }
@@ -39,7 +38,7 @@ const CharacterSelectionPage: React.FC = () => {
   }
 
   if (error) {
-    return <div className="text-center text-red-400 mt-16 bg-red-900/50 p-4 rounded-md">{error}</div>;
+    return <div className="text-center text-red-400 mt-16 bg-red-900/50 p-4 rounded-md max-w-2xl mx-auto">{error}</div>;
   }
 
   return (
